@@ -1,0 +1,77 @@
+name: Fintech CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install client dependencies
+        run: |
+          cd client
+          npm install
+
+      - name: Install server dependencies
+        run: |
+          cd server
+          npm install
+
+      - name: Build client
+        run: |
+          cd client
+          npm run build
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run client tests
+        run: |
+          cd client
+          npm run test -- --coverage
+
+      - name: Run server tests
+        run: |
+          cd server
+          npm run test -- --coverage
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Build Docker images
+        run: |
+          cd server
+          docker build -t fintech-server:${{ github.sha }} .
+
+      - name: Push Docker images
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker tag fintech-server:${{ github.sha }} ghcr.io/${{ github.repository }}/fintech-server:${{ github.sha }}
+          docker push ghcr.io/${{ github.repository }}/fintech-server:${{ github.sha }}
+
+  rollback:
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger rollback
+        run: bash ci-cd/rollback.sh
