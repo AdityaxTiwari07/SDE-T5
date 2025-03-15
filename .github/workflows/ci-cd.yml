@@ -58,16 +58,36 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     steps:
-      - name: Build Docker images
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ AKIAQ3EGQHG2DBRXFNHB }}
+          aws-secret-access-key: ${{ 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}}
+          aws-region: ap-south-1
+
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 058264140212.dkr.ecr.ap-south-1.amazonaws.com
+
+      - name: Build Docker Image
         run: |
           cd server
-          docker build -t fintech-server:${{ github.sha }} .
+          docker build -t 058264140212.dkr.ecr.ap-south-1.amazonaws.com/backend .
 
-      - name: Push Docker images
+      - name: Push Docker Image to Amazon ECR
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker tag fintech-server:${{ github.sha }} ghcr.io/${{ github.repository }}/fintech-server:${{ github.sha }}
-          docker push ghcr.io/${{ github.repository }}/fintech-server:${{ github.sha }}
+          docker push 058264140212.dkr.ecr.ap-south-1.amazonaws.com/frontend
+
+      - name: Update ECS Task Definition
+        run: |
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition fintech-task --query taskDefinition)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "058264140212.dkr.ecr.ap-south-1.amazonaws.com/backend" '.containerDefinitions[0].image = $IMAGE')
+          echo "$NEW_TASK_DEF" > new-task-def.json
+          aws ecs register-task-definition --cli-input-json file://new-task-def.json
+
+      - name: Deploy to AWS Fargate
+        run: |
+          aws ecs update-service --cluster fintech-cluster --service fintech-service --force-new-deployment
 
   rollback:
     if: failure()
